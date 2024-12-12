@@ -1,9 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PawPrint } from 'lucide-react';
+import { usePetProfile } from '../../../hooks/usePetProfile';
 
 const Welcome = () => {
     const navigate = useNavigate();
+    const { pet, loading, error } = usePetProfile();
+
+    if (!pet) return null;
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-violet-500 to-purple-500">
@@ -12,8 +15,8 @@ const Welcome = () => {
                     <div className="p-6">
                         {/* <PawPrint className="w-24 h-24 text-primary-600" /> */}
                         <img
-                            src="/src/assets/mielapp.png"
-                            alt=""
+                            src={pet.foto_url}
+                            alt={pet.nombre}
                             className="w-72 h-72 object-contain"
                         />
                     </div>
