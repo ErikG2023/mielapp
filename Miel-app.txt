@@ -1,0 +1,2844 @@
+// File: db-estructura.sql
+
+-- Extensión UUID
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Tipo ENUM para categorías de gasto
+CREATE TYPE categoria_gasto AS ENUM (
+    'consulta_rutina',
+    'emergencia',
+    'medicamentos',
+    'vacunas',
+    'desparasitacion',
+    'estetica',
+    'alimentos',
+    'accesorios',
+    'otros'
+);
+
+-- Tabla de Mascotas
+CREATE TABLE mascotas (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    nombre VARCHAR NOT NULL,
+    raza VARCHAR NOT NULL,
+    fecha_nacimiento DATE,
+    peso DECIMAL,
+    foto_url VARCHAR,
+    creado_en TIMESTAMPTZ DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Tabla de Proveedores de Servicios
+CREATE TABLE proveedores_servicios (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    nombre VARCHAR NOT NULL,
+    tipo VARCHAR NOT NULL, -- 'veterinaria', 'estetica', 'ambos'
+    direccion VARCHAR,
+    telefono VARCHAR,
+    correo VARCHAR,
+    sitio_web VARCHAR,
+    notas TEXT,
+    calificacion DECIMAL(2,1),
+    es_favorito BOOLEAN DEFAULT false,
+    creado_en TIMESTAMPTZ DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Tabla de Visitas Veterinarias
+CREATE TABLE visitas_veterinarias (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    mascota_id UUID REFERENCES mascotas(id),
+    proveedor_id UUID REFERENCES proveedores_servicios(id),
+    fecha_visita DATE NOT NULL,
+    nombre_veterinario VARCHAR,
+    motivo VARCHAR NOT NULL,
+    diagnostico TEXT,
+    tratamiento TEXT,
+    estado_salud VARCHAR CHECK (estado_salud IN ('excelente', 'bueno', 'regular', 'requiere_atencion', 'critico')),
+    fecha_proxima_visita DATE,
+    notas TEXT,
+    peso DECIMAL,
+    costo DECIMAL,
+    categoria_gasto categoria_gasto,
+    recordatorio_enviado BOOLEAN DEFAULT false,
+    dias_recordatorio INTEGER DEFAULT 7,
+    creado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Tabla de Estética
+CREATE TABLE estetica (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    mascota_id UUID REFERENCES mascotas(id),
+    proveedor_id UUID REFERENCES proveedores_servicios(id),
+    fecha_servicio DATE NOT NULL,
+    nombre_estilista VARCHAR,
+    tipo_servicio VARCHAR[],
+    notas TEXT,
+    costo DECIMAL,
+    categoria_gasto categoria_gasto,
+    fecha_proxima_cita DATE,
+    recordatorio_enviado BOOLEAN DEFAULT false,
+    dias_recordatorio INTEGER DEFAULT 7,
+    creado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Tabla de Vacunas y Desparasitaciones
+CREATE TABLE vacunas_desparasitaciones (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    mascota_id UUID REFERENCES mascotas(id),
+    proveedor_id UUID REFERENCES proveedores_servicios(id),
+    tipo VARCHAR NOT NULL, -- 'vacuna' o 'desparasitacion'
+    nombre VARCHAR NOT NULL,
+    marca VARCHAR,
+    numero_lote VARCHAR,
+    fecha_aplicacion DATE NOT NULL,
+    fecha_proxima_aplicacion DATE,
+    aplicado_por VARCHAR,
+    notas TEXT,
+    costo DECIMAL,
+    categoria_gasto categoria_gasto,
+    recordatorio_enviado BOOLEAN DEFAULT false,
+    dias_recordatorio INTEGER DEFAULT 7,
+    creado_en TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Índices para mejorar el rendimiento
+CREATE INDEX idx_mascotas_nombre ON mascotas(nombre);
+CREATE INDEX idx_visitas_mascota_fecha ON visitas_veterinarias(mascota_id, fecha_visita);
+CREATE INDEX idx_estetica_mascota_fecha ON estetica(mascota_id, fecha_servicio);
+CREATE INDEX idx_vacunas_mascota_fecha ON vacunas_desparasitaciones(mascota_id, fecha_aplicacion);
+CREATE INDEX idx_proveedores_tipo ON proveedores_servicios(tipo);
+
+-- Triggers para actualizar timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.actualizado_en = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_mascotas_updated_at
+    BEFORE UPDATE ON mascotas
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_proveedores_updated_at
+    BEFORE UPDATE ON proveedores_servicios
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+
+-- DATA
+
+-- Insertar mascota Miel
+INSERT INTO mascotas (
+    nombre,
+    raza,
+    fecha_nacimiento,
+    peso,
+    foto_url
+) VALUES (
+    'Miel',
+    'Maltés',
+    '2023-11-23',  -- Aproximadamente 4 meses de edad
+    2.5,           -- Peso actual
+    NULL           -- Pendiente de agregar foto
+);
+
+-- Insertar proveedores de servicios
+INSERT INTO proveedores_servicios (
+    nombre,
+    tipo,
+    direccion,
+    telefono,
+    correo,
+    sitio_web,
+    notas,
+    calificacion,
+    es_favorito
+) VALUES 
+(
+    'Veterinaria El Pastor',
+    'veterinaria',
+    'Av. Principal 123',
+    '555-1234',
+    'elpastor@email.com',
+    'www.elpastor.com',
+    'Veterinaria principal de Miel',
+    4.8,
+    true
+),
+(
+    'Pet Beauty Spa',
+    'estetica',
+    'Calle Mascota 456',
+    '555-5678',
+    'petbeauty@email.com',
+    'www.petbeauty.com',
+    'Estética preferida para Miel',
+    4.5,
+    true
+),
+(
+    'Hospital Veterinario 24/7',
+    'veterinaria',
+    'Av. Central 789',
+    '555-9012',
+    'hospital@email.com',
+    'www.hospitalvet.com',
+    'Para emergencias',
+    4.7,
+    false
+);
+
+-- Insertar historial de visitas veterinarias
+INSERT INTO visitas_veterinarias (
+    mascota_id,
+    proveedor_id,
+    fecha_visita,
+    fecha_proxima_visita,
+    nombre_veterinario,
+    motivo,
+    diagnostico,
+    tratamiento,
+    estado_salud,
+    notas,
+    peso,
+    costo,
+    categoria_gasto
+) VALUES 
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    '2023-12-01',
+    '2023-12-15',
+    'Dr. García',
+    'Primera revisión',
+    'Cachorro saludable',
+    'Inicio de calendario de vacunación',
+    'excelente',
+    'Primera visita al veterinario',
+    1.8,
+    50.00,
+    'consulta_rutina'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    '2023-12-15',
+    '2024-01-15',
+    'Dr. García',
+    'Seguimiento y vacunación',
+    'Desarrollo normal',
+    'Continuar con calendario de vacunación',
+    'excelente',
+    'Segunda visita',
+    2.0,
+    85.00,
+    'consulta_rutina'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    '2024-01-15',
+    '2024-02-15',
+    'Dr. García',
+    'Control mensual',
+    'Crecimiento adecuado',
+    'Continuar con alimentación actual',
+    'bueno',
+    'Tercer control',
+    2.3,
+    45.00,
+    'consulta_rutina'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    '2024-02-15',
+    '2024-03-15',
+    'Dr. García',
+    'Control y vacunación',
+    'Desarrollo normal',
+    'Siguiente vacuna en un mes',
+    'bueno',
+    'Cuarto control',
+    2.5,
+    85.00,
+    'consulta_rutina'
+),
+-- Próxima cita (futura)
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    CURRENT_DATE,
+    CURRENT_DATE + INTERVAL '1 month',
+    'Dr. García',
+    'Control mensual y vacunación',
+    'Pendiente',
+    'Pendiente',
+    'bueno',
+    'Próximo control',
+    2.5,
+    85.00,
+    'consulta_rutina'
+);
+
+-- Insertar historial de estética
+INSERT INTO estetica (
+    mascota_id,
+    proveedor_id,
+    fecha_servicio,
+    fecha_proxima_cita,
+    nombre_estilista,
+    tipo_servicio,
+    notas,
+    costo,
+    categoria_gasto
+) VALUES 
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Pet Beauty Spa'),
+    '2024-01-10',
+    '2024-02-10',
+    'Ana',
+    ARRAY['corte', 'baño', 'uñas'],
+    'Primera sesión de estética',
+    45.00,
+    'estetica'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Pet Beauty Spa'),
+    '2024-02-10',
+    '2024-03-10',
+    'Ana',
+    ARRAY['corte', 'baño', 'uñas'],
+    'Segundo corte',
+    45.00,
+    'estetica'
+),
+-- Próxima cita (futura)
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Pet Beauty Spa'),
+    CURRENT_DATE,
+    CURRENT_DATE + INTERVAL '15 days',
+    'Ana',
+    ARRAY['corte', 'baño', 'uñas'],
+    'Próximo corte programado',
+    45.00,
+    'estetica'
+);
+
+-- Insertar vacunas y desparasitaciones
+INSERT INTO vacunas_desparasitaciones (
+    mascota_id,
+    proveedor_id,
+    tipo,
+    nombre,
+    marca,
+    fecha_aplicacion,
+    fecha_proxima_aplicacion,
+    aplicado_por,
+    notas,
+    costo,
+    categoria_gasto
+) VALUES 
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    'vacuna',
+    'Parvovirus inicial',
+    'VanguardPlus',
+    '2023-12-15',
+    '2024-01-15',
+    'Dr. García',
+    'Primera dosis',
+    35.00,
+    'vacunas'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    'desparasitacion',
+    'Desparasitación inicial',
+    'Drontal',
+    '2023-12-15',
+    '2024-02-15',
+    'Dr. García',
+    'Primera desparasitación',
+    20.00,
+    'desparasitacion'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    'vacuna',
+    'Parvovirus refuerzo',
+    'VanguardPlus',
+    '2024-01-15',
+    '2024-02-15',
+    'Dr. García',
+    'Segunda dosis',
+    35.00,
+    'vacunas'
+),
+-- Próximas aplicaciones (futuras)
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    'vacuna',
+    'Polivalente',
+    'VanguardPlus',
+    CURRENT_DATE,
+    CURRENT_DATE + INTERVAL '3 months',
+    'Dr. García',
+    'Próxima vacuna programada',
+    35.00,
+    'vacunas'
+),
+(
+    (SELECT id FROM mascotas WHERE nombre = 'Miel'),
+    (SELECT id FROM proveedores_servicios WHERE nombre = 'Veterinaria El Pastor'),
+    'desparasitacion',
+    'Desparasitación trimestral',
+    'Drontal',
+    CURRENT_DATE,
+    CURRENT_DATE + INTERVAL '2 months',
+    'Dr. García',
+    'Próxima desparasitación programada',
+    20.00,
+    'desparasitacion'
+);
+
+---
+
+// File: package.json
+
+{
+  "name": "miel-pet-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.3",
+    "@tailwindcss/forms": "^0.5.9",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.0.2",
+    "recharts": "^2.14.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "vite": "^6.0.1"
+  }
+}
+
+
+---
+
+// File: src\App.css
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+
+---
+
+// File: src\App.jsx
+
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './pages/Layout';
+import Welcome from './pages/Welcome';
+import Home from './pages/Home';
+import './styles/colors.css';
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Welcome />} />
+        <Route path="/" element={<Layout />}>
+          <Route path="home" element={<Home />} />
+          <Route path="vet-visits" element={<div>Cortes de Pelo</div>}/>
+          <Route path="providers" element={<div>Cortes de Pelo</div>}/>
+          <Route path="grooming" element={<div>Cortes de Pelo</div>} />
+          <Route path="vaccinations" element={<div>Vacunas</div>} />
+          <Route path="*" element={<Navigate to="/home" replace />} />
+        </Route>
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
+
+---
+
+// File: src\components\dashboard\appointments\AppointmentItem.jsx
+
+// src/components/dashboard/appointments/AppointmentItem.jsx
+import React from 'react';
+import { Calendar, Scissors, Syringe } from 'lucide-react';
+
+const typeConfig = {
+    vet: {
+        icon: Calendar,
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100',
+        label: 'Veterinaria'
+    },
+    grooming: {
+        icon: Scissors,
+        color: 'text-pink-500',
+        bgColor: 'bg-pink-100',
+        label: 'Estética'
+    },
+    vaccine: {
+        icon: Syringe,
+        color: 'text-purple-500',
+        bgColor: 'bg-purple-100',
+        label: 'Vacuna'
+    },
+    deworming: {
+        icon: Syringe,
+        color: 'text-green-500',
+        bgColor: 'bg-green-100',
+        label: 'Desparasitación'
+    }
+};
+
+const AppointmentItem = ({ type, date, title, provider, isLast }) => {
+    const config = typeConfig[type];
+    const Icon = config.icon;
+
+    const formattedDate = new Date(date).toLocaleDateString('es-ES', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+    });
+
+    return (
+        <div className="relative flex gap-4">
+            {/* Línea de conexión */}
+            {!isLast && (
+                <div className="absolute left-4 top-8 w-0.5 h-full -ml-px bg-gray-200" />
+            )}
+
+            {/* Icono */}
+            <div className={`relative flex items-center justify-center w-8 h-8 rounded-full ${config.bgColor} ${config.color}`}>
+                <Icon className="w-4 h-4" />
+            </div>
+
+            {/* Contenido */}
+            <div className="flex-1 pb-6">
+                <div className="text-sm font-medium text-gray-900">
+                    {title}
+                </div>
+                <div className="mt-1 text-sm text-gray-500">
+                    {formattedDate}
+                </div>
+                {provider && (
+                    <div className="mt-1 text-sm text-gray-400">
+                        {provider}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default AppointmentItem;
+
+---
+
+// File: src\components\dashboard\appointments\UpcomingAppointments.jsx
+
+// src/components/dashboard/appointments/UpcomingAppointments.jsx
+import React from 'react';
+import { useUpcomingAppointments } from '../../../hooks/useUpcomingAppointments';
+import AppointmentItem from './AppointmentItem';
+import DashboardCard from '../DashboardCard';
+
+const UpcomingAppointments = () => {
+    const { appointments, loading, error } = useUpcomingAppointments();
+
+    if (loading) {
+        return (
+            <DashboardCard title="Próximas Citas">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-gray-500">Cargando citas...</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    if (error) {
+        return (
+            <DashboardCard title="Próximas Citas">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-red-500">Error: {error}</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    const allAppointments = [
+        ...appointments.vet.map(app => ({
+            type: 'vet',
+            date: app.fecha_proxima_visita,
+            title: app.motivo,
+            provider: app.proveedores_servicios.nombre
+        })),
+        ...appointments.grooming.map(app => ({
+            type: 'grooming',
+            date: app.fecha_proxima_cita,
+            title: 'Sesión de Estética',
+            provider: app.proveedores_servicios.nombre
+        })),
+        ...appointments.vaccines.map(app => ({
+            type: app.tipo === 'vacuna' ? 'vaccine' : 'deworming',
+            date: app.fecha_proxima_aplicacion,
+            title: app.nombre,
+            provider: app.proveedores_servicios.nombre
+        }))
+    ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    return (
+        <DashboardCard title="Próximas Citas">
+            <div className="space-y-4">
+                {allAppointments.length > 0 ? (
+                    allAppointments.map((appointment, index) => (
+                        <AppointmentItem
+                            key={`${appointment.type}-${appointment.date}-${index}`}
+                            {...appointment}
+                            isLast={index === allAppointments.length - 1}
+                        />
+                    ))
+                ) : (
+                    <div className="text-center py-8 text-gray-500">
+                        No hay citas programadas
+                    </div>
+                )}
+            </div>
+        </DashboardCard>
+    );
+};
+
+export default UpcomingAppointments;
+
+---
+
+// File: src\components\dashboard\calendar\CareCalendar.jsx
+
+// src/components/dashboard/calendar/CareCalendar.jsx
+import React, { useState } from 'react';
+import { Calendar, Shield, Scissors } from 'lucide-react';
+import { usePetCalendar } from '../../../hooks/usePetCalendar';
+import DashboardCard from '../DashboardCard';
+import EventDot from './EventDot';
+
+const CareCalendar = () => {
+    const { events, loading, error } = usePetCalendar();
+    const [selectedDate, setSelectedDate] = useState(new Date());
+    const [showingMonth, setShowingMonth] = useState(new Date());
+
+    const getDaysInMonth = (date) => {
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        return new Date(year, month + 1, 0).getDate();
+    };
+
+    const getFirstDayOfMonth = (date) => {
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        return new Date(year, month, 1).getDay();
+    };
+
+    const getMonthDays = () => {
+        const daysInMonth = getDaysInMonth(showingMonth);
+        const firstDayOfMonth = getFirstDayOfMonth(showingMonth);
+        const days = [];
+
+        // Días del mes anterior
+        for (let i = 0; i < firstDayOfMonth; i++) {
+            days.push({ day: null, events: [] });
+        }
+
+        // Días del mes actual
+        for (let day = 1; day <= daysInMonth; day++) {
+            const date = new Date(showingMonth.getFullYear(), showingMonth.getMonth(), day);
+            const dayEvents = events.filter(event => {
+                const eventDate = new Date(event.start);
+                return eventDate.getDate() === day &&
+                    eventDate.getMonth() === date.getMonth() &&
+                    eventDate.getFullYear() === date.getFullYear();
+            });
+
+            days.push({ day, events: dayEvents });
+        }
+
+        return days;
+    };
+
+    const changeMonth = (increment) => {
+        setShowingMonth(new Date(showingMonth.setMonth(showingMonth.getMonth() + increment)));
+    };
+
+    if (loading) {
+        return (
+            <DashboardCard title="Calendario de Cuidados">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-gray-500">Cargando calendario...</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    if (error) {
+        return (
+            <DashboardCard title="Calendario de Cuidados">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-red-500">Error: {error}</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    const days = getMonthDays();
+
+    return (
+        <DashboardCard title="Calendario de Cuidados">
+            <div className="space-y-4">
+                {/* Cabecera del calendario */}
+                <div className="flex items-center justify-between">
+                    <button
+                        onClick={() => changeMonth(-1)}
+                        className="p-2 hover:bg-gray-100 rounded-lg"
+                    >
+                        ←
+                    </button>
+                    <h3 className="text-lg font-medium">
+                        {showingMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                    </h3>
+                    <button
+                        onClick={() => changeMonth(1)}
+                        className="p-2 hover:bg-gray-100 rounded-lg"
+                    >
+                        →
+                    </button>
+                </div>
+
+                {/* Días de la semana */}
+                <div className="grid grid-cols-7 gap-1 text-center text-sm font-medium text-gray-500">
+                    {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => (
+                        <div key={day} className="py-2">{day}</div>
+                    ))}
+                </div>
+
+                {/* Días del mes */}
+                <div className="grid grid-cols-7 gap-1">
+                    {days.map((dayData, index) => (
+                        <div
+                            key={index}
+                            className={`
+                min-h-24 p-2 border rounded-lg
+                ${!dayData.day ? 'bg-gray-50' : 'hover:bg-gray-50 cursor-pointer'}
+                ${dayData.day === selectedDate.getDate() ? 'border-primary-500' : 'border-gray-100'}
+              `}
+                            onClick={() => dayData.day && setSelectedDate(new Date(showingMonth.getFullYear(), showingMonth.getMonth(), dayData.day))}
+                        >
+                            {dayData.day && (
+                                <>
+                                    <div className="text-sm font-medium">{dayData.day}</div>
+                                    <div className="mt-1 space-y-1">
+                                        {dayData.events.map(event => (
+                                            <div
+                                                key={event.id}
+                                                className="flex items-center gap-1 text-xs"
+                                            >
+                                                <EventDot type={event.type} />
+                                                <span className="truncate">{event.title}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Leyenda */}
+                <div className="flex items-center gap-4 text-sm text-gray-600 pt-4 border-t">
+                    <div className="flex items-center gap-2">
+                        <EventDot type="veterinary" />
+                        <span>Veterinaria</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <EventDot type="grooming" />
+                        <span>Estética</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <EventDot type="vacuna" />
+                        <span>Vacunas</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <EventDot type="desparasitacion" />
+                        <span>Desparasitación</span>
+                    </div>
+                </div>
+            </div>
+        </DashboardCard>
+    );
+};
+
+export default CareCalendar;
+
+---
+
+// File: src\components\dashboard\calendar\EventDot.jsx
+
+// src/components/dashboard/calendar/EventDot.jsx
+import React from 'react';
+
+const TYPE_STYLES = {
+    veterinary: 'bg-blue-500',
+    grooming: 'bg-pink-500',
+    vacuna: 'bg-purple-500',
+    desparasitacion: 'bg-green-500'
+};
+
+const EventDot = ({ type, className = '' }) => (
+    <div
+        className={`w-2 h-2 rounded-full ${TYPE_STYLES[type] || 'bg-gray-500'} ${className}`}
+    />
+);
+
+export default EventDot;
+
+---
+
+// File: src\components\dashboard\DashboardCard.jsx
+
+// src/components/dashboard/DashboardCard.jsx
+const DashboardCard = ({ title, children }) => {
+    return (
+        <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
+            {children}
+        </div>
+    );
+};
+
+export default DashboardCard;
+
+---
+
+// File: src\components\dashboard\expenses\CategoryPieChart.jsx
+
+// src/components/dashboard/expenses/CategoryPieChart.jsx
+import React from 'react';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+
+const COLORS = {
+    consulta_rutina: '#9333ea',
+    emergencia: '#ef4444',
+    medicamentos: '#3b82f6',
+    vacunas: '#22c55e',
+    desparasitacion: '#eab308',
+    estetica: '#ec4899',
+    alimentos: '#f97316',
+    accesorios: '#6366f1',
+    otros: '#64748b'
+};
+
+const CATEGORY_LABELS = {
+    consulta_rutina: 'Consultas de Rutina',
+    emergencia: 'Emergencias',
+    medicamentos: 'Medicamentos',
+    vacunas: 'Vacunas',
+    desparasitacion: 'Desparasitación',
+    estetica: 'Estética',
+    alimentos: 'Alimentos',
+    accesorios: 'Accesorios',
+    otros: 'Otros'
+};
+
+const CategoryPieChart = ({ data }) => {
+    const chartData = Object.entries(data).map(([categoria, monto]) => ({
+        name: CATEGORY_LABELS[categoria],
+        value: monto,
+        color: COLORS[categoria]
+    }));
+
+    return (
+        <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                    <Pie
+                        data={chartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                    >
+                        {chartData.map((entry, index) => (
+                            <Cell key={index} fill={entry.color} />
+                        ))}
+                    </Pie>
+                    <Tooltip
+                        formatter={(value) => `$${value.toFixed(2)}`}
+                    />
+                </PieChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+export default CategoryPieChart;
+
+---
+
+// File: src\components\dashboard\expenses\ExpensesBarChart.jsx
+
+// src/components/dashboard/expenses/ExpensesBarChart.jsx
+import React from 'react';
+import {
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    Tooltip,
+    ResponsiveContainer
+} from 'recharts';
+
+const ExpensesBarChart = ({ data }) => {
+    const chartData = Object.entries(data).map(([mes, monto]) => ({
+        mes,
+        monto
+    }));
+
+    return (
+        <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                    <XAxis
+                        dataKey="mes"
+                        tick={{ fontSize: 12 }}
+                        interval={0}
+                        angle={-45}
+                        textAnchor="end"
+                    />
+                    <YAxis
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(value) => `$${value}`}
+                    />
+                    <Tooltip
+                        formatter={(value) => [`$${value}`, 'Gasto']}
+                        labelFormatter={(label) => `Mes: ${label}`}
+                    />
+                    <Bar
+                        dataKey="monto"
+                        fill="#9333ea"
+                        radius={[4, 4, 0, 0]}
+                    />
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+export default ExpensesBarChart;
+
+---
+
+// File: src\components\dashboard\expenses\ExpensesHistory.jsx
+
+// src/components/dashboard/expenses/ExpensesHistory.jsx
+import React from 'react';
+import { DollarSign, PieChart, TrendingUp } from 'lucide-react';
+import { useExpenses } from '../../../hooks/useExpenses';
+import DashboardCard from '../DashboardCard';
+import ExpensesBarChart from './ExpensesBarChart';
+import CategoryPieChart from './CategoryPieChart';
+
+const ExpensesHistory = () => {
+    const { expenses, loading, error } = useExpenses();
+
+    if (loading) {
+        return (
+            <DashboardCard title="Historial de Gastos">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-gray-500">Cargando gastos...</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    if (error) {
+        return (
+            <DashboardCard title="Historial de Gastos">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-red-500">Error: {error}</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    return (
+        <DashboardCard title="Historial de Gastos">
+            <div className="space-y-6">
+                {/* Total de gastos */}
+                <div className="bg-primary-50 rounded-lg p-4">
+                    <div className="flex items-center gap-3">
+                        <DollarSign className="w-8 h-8 text-primary-500" />
+                        <div>
+                            <h3 className="text-lg font-medium text-gray-900">
+                                Total Gastado
+                            </h3>
+                            <p className="text-2xl font-bold text-primary-600">
+                                ${expenses.total.toFixed(2)}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Gráficos */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Gastos por mes */}
+                    <div>
+                        <h3 className="flex items-center gap-2 mb-4 font-medium text-gray-700">
+                            <TrendingUp className="w-5 h-5" />
+                            Gastos por Mes
+                        </h3>
+                        <ExpensesBarChart data={expenses.porMes} />
+                    </div>
+
+                    {/* Gastos por categoría */}
+                    <div>
+                        <h3 className="flex items-center gap-2 mb-4 font-medium text-gray-700">
+                            <PieChart className="w-5 h-5" />
+                            Gastos por Categoría
+                        </h3>
+                        <CategoryPieChart data={expenses.porCategoria} />
+                    </div>
+                </div>
+            </div>
+        </DashboardCard>
+    );
+};
+
+export default ExpensesHistory;
+
+---
+
+// File: src\components\dashboard\pet-profile\HealthStatus.jsx
+
+// src/components/dashboard/pet-profile/HealthStatus.jsx
+import React from 'react';
+import { Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
+
+const healthStatusConfig = {
+    excelente: {
+        icon: ShieldCheck,
+        color: 'text-green-500',
+        bgColor: 'bg-green-50',
+        label: 'Excelente'
+    },
+    bueno: {
+        icon: Shield,
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-50',
+        label: 'Bueno'
+    },
+    regular: {
+        icon: ShieldAlert,
+        color: 'text-yellow-500',
+        bgColor: 'bg-yellow-50',
+        label: 'Regular'
+    },
+    requiere_atencion: {
+        icon: ShieldAlert,
+        color: 'text-orange-500',
+        bgColor: 'bg-orange-50',
+        label: 'Requiere Atención'
+    },
+    critico: {
+        icon: ShieldAlert,
+        color: 'text-red-500',
+        bgColor: 'bg-red-50',
+        label: 'Crítico'
+    }
+};
+
+const HealthStatus = ({ status = 'bueno' }) => {
+    const config = healthStatusConfig[status];
+    const Icon = config.icon;
+
+    return (
+        <div className={`flex items-center gap-2 p-2 rounded-lg ${config.bgColor}`}>
+            <Icon className={`h-5 w-5 ${config.color}`} />
+            <span className={`text-sm font-medium ${config.color}`}>
+                {config.label}
+            </span>
+        </div>
+    );
+};
+
+export default HealthStatus;
+
+---
+
+// File: src\components\dashboard\pet-profile\PetProfileCard.jsx
+
+import React from 'react';
+import { Camera } from 'lucide-react';
+import { calculateAge } from '../../../utils/dateUtils';
+import { usePetProfile } from '../../../hooks/usePetProfile';
+import WeightChart from './WeightChart';
+import HealthStatus from './HealthStatus';
+
+const PetProfileCard = () => {
+    const { pet, loading, error } = usePetProfile();
+
+    if (loading) return (
+        <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex justify-center items-center h-32">
+                <p className="text-gray-500">Cargando información...</p>
+            </div>
+        </div>
+    );
+
+    if (error) return (
+        <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex justify-center items-center h-32">
+                <p className="text-red-500">Error: {error}</p>
+            </div>
+        </div>
+    );
+
+    if (!pet) return null;
+
+    const latestVisit = pet.visitas_veterinarias?.[0];
+    const age = calculateAge(pet.fecha_nacimiento);
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex flex-col md:flex-row gap-6">
+                {/* Foto y datos básicos */}
+                <div className="flex flex-col items-center space-y-4">
+                    <div className="relative">
+                        {pet.foto_url ? (
+                            <img
+                                src={pet.foto_url}
+                                alt={pet.nombre}
+                                className="w-32 h-32 rounded-full object-cover border-4 border-primary-100"
+                            />
+                        ) : (
+                            <div className="w-32 h-32 rounded-full bg-primary-50 border-4 border-primary-100 flex items-center justify-center">
+                                <Camera className="w-12 h-12 text-primary-300" />
+                            </div>
+                        )}
+                    </div>
+                    <div className="text-center">
+                        <h2 className="text-2xl font-bold text-gray-900">{pet.nombre}</h2>
+                        <p className="text-gray-500">{pet.raza}</p>
+                        <p className="text-sm text-gray-400">{age}</p>
+                    </div>
+                </div>
+
+                {/* Información de salud y peso */}
+                <div className="flex-1 space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <h3 className="text-sm font-medium text-gray-500">Estado de Salud</h3>
+                            <HealthStatus status={latestVisit?.estado_salud} />
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-sm font-medium text-gray-500">
+                                Peso Actual: {pet.peso} kg
+                            </h3>
+                            <WeightChart
+                                weightHistory={pet.visitas_veterinarias?.filter(v => v.peso)}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default PetProfileCard;
+
+---
+
+// File: src\components\dashboard\pet-profile\WeightChart.jsx
+
+import React from 'react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+
+const WeightChart = ({ weightHistory }) => {
+    const data = weightHistory?.map(visit => ({
+        fecha: new Date(visit.fecha_visita).toLocaleDateString(),
+        peso: visit.peso
+    })) || [];
+
+    return (
+        <div className="h-32">
+            <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data}>
+                    <XAxis dataKey="fecha" hide />
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip />
+                    <Line
+                        type="monotone"
+                        dataKey="peso"
+                        stroke="#9333ea"
+                        strokeWidth={2}
+                        dot={{ fill: '#9333ea', strokeWidth: 2 }}
+                    />
+                </LineChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+export default WeightChart;
+
+---
+
+// File: src\components\dashboard\providers\FavoriteProviders.jsx
+
+// src/components/dashboard/providers/FavoriteProviders.jsx
+import React from 'react';
+import { useFavoriteProviders } from '../../../hooks/useFavoriteProviders';
+import DashboardCard from '../DashboardCard';
+import ProviderCard from './ProviderCard';
+
+const FavoriteProviders = () => {
+    const { providers, loading, error } = useFavoriteProviders();
+
+    if (loading) {
+        return (
+            <DashboardCard title="Servicios Favoritos">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-gray-500">Cargando proveedores favoritos...</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    if (error) {
+        return (
+            <DashboardCard title="Servicios Favoritos">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-red-500">Error: {error}</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    return (
+        <DashboardCard title="Servicios Favoritos">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {providers?.length > 0 ? (
+                    providers.map(provider => (
+                        <ProviderCard key={provider.id} provider={provider} />
+                    ))
+                ) : (
+                    <div className="col-span-2 text-center py-8 text-gray-500">
+                        No hay servicios favoritos
+                    </div>
+                )}
+            </div>
+        </DashboardCard>
+    );
+};
+
+export default FavoriteProviders;
+
+---
+
+// File: src\components\dashboard\providers\ProviderCard.jsx
+
+// src/components/dashboard/providers/ProviderCard.jsx
+import React from 'react';
+import { Building2, Phone, Mail, Calendar } from 'lucide-react';
+import RatingStars from './RatingStars';
+
+const ProviderCard = ({ provider }) => {
+    const getLastServiceDate = () => {
+        const veterinaryDate = provider.ultima_visita?.fecha_visita;
+        const groomingDate = provider.ultima_estetica?.fecha_servicio;
+
+        if (!veterinaryDate && !groomingDate) return null;
+        if (!veterinaryDate) return new Date(groomingDate);
+        if (!groomingDate) return new Date(veterinaryDate);
+
+        return new Date(Math.max(new Date(veterinaryDate), new Date(groomingDate)));
+    };
+
+    const lastServiceDate = getLastServiceDate();
+
+    return (
+        <div className="bg-white rounded-lg shadow-sm p-4 hover:shadow-md transition-shadow">
+            <div className="space-y-4">
+                {/* Encabezado */}
+                <div>
+                    <div className="flex items-start justify-between">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                            {provider.nombre}
+                        </h3>
+                        <span className="px-2 py-1 text-xs font-medium rounded-full
+              {provider.tipo === 'veterinaria' 
+                ? 'bg-blue-100 text-blue-800'
+                : provider.tipo === 'estetica'
+                ? 'bg-pink-100 text-pink-800'
+                : 'bg-purple-100 text-purple-800'
+              }">
+                            {provider.tipo.charAt(0).toUpperCase() + provider.tipo.slice(1)}
+                        </span>
+                    </div>
+                    <RatingStars rating={provider.calificacion} />
+                </div>
+
+                {/* Información de contacto */}
+                <div className="space-y-2">
+                    {provider.direccion && (
+                        <div className="flex items-center text-sm text-gray-600">
+                            <Building2 className="w-4 h-4 mr-2" />
+                            {provider.direccion}
+                        </div>
+                    )}
+                    {provider.telefono && (
+                        <div className="flex items-center text-sm text-gray-600">
+                            <Phone className="w-4 h-4 mr-2" />
+                            {provider.telefono}
+                        </div>
+                    )}
+                    {provider.correo && (
+                        <div className="flex items-center text-sm text-gray-600">
+                            <Mail className="w-4 h-4 mr-2" />
+                            {provider.correo}
+                        </div>
+                    )}
+                </div>
+
+                {/* Último servicio */}
+                {lastServiceDate && (
+                    <div className="flex items-center text-sm text-gray-500 pt-2 border-t">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        Último servicio: {lastServiceDate.toLocaleDateString()}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default ProviderCard;
+
+---
+
+// File: src\components\dashboard\providers\RatingStars.jsx
+
+// src/components/dashboard/providers/RatingStars.jsx
+import React from 'react';
+import { Star } from 'lucide-react';
+
+const RatingStars = ({ rating }) => {
+    const totalStars = 5;
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+
+    return (
+        <div className="flex items-center gap-1">
+            {[...Array(totalStars)].map((_, index) => (
+                <Star
+                    key={index}
+                    className={`w-4 h-4 ${index < fullStars
+                            ? 'text-yellow-400 fill-yellow-400'
+                            : index === fullStars && hasHalfStar
+                                ? 'text-yellow-400 fill-yellow-400/50'
+                                : 'text-gray-300'
+                        }`}
+                />
+            ))}
+            <span className="ml-1 text-sm text-gray-600">{rating.toFixed(1)}</span>
+        </div>
+    );
+};
+
+export default RatingStars;
+
+---
+
+// File: src\components\dashboard\vaccination\CircularProgress.jsx
+
+// src/components/dashboard/vaccination/CircularProgress.jsx
+import React from 'react';
+
+const CircularProgress = ({ percentage, color }) => {
+    const radius = 40;
+    const circumference = radius * 2 * Math.PI;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return (
+        <div className="relative inline-flex">
+            <svg className="w-32 h-32 transform -rotate-90">
+                {/* Círculo de fondo */}
+                <circle
+                    className="text-gray-200"
+                    strokeWidth="8"
+                    stroke="currentColor"
+                    fill="transparent"
+                    r={radius}
+                    cx="64"
+                    cy="64"
+                />
+                {/* Círculo de progreso */}
+                <circle
+                    className={color}
+                    strokeWidth="8"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeDashoffset}
+                    strokeLinecap="round"
+                    stroke="currentColor"
+                    fill="transparent"
+                    r={radius}
+                    cx="64"
+                    cy="64"
+                />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-2xl font-semibold">
+                {percentage}%
+            </span>
+        </div>
+    );
+};
+
+export default CircularProgress;
+
+---
+
+// File: src\components\dashboard\vaccination\VaccinationStatus.jsx
+
+// src/components/dashboard/vaccination/VaccinationStatus.jsx
+import React from 'react';
+import { Syringe, Shield } from 'lucide-react';
+import { useVaccinationStatus } from '../../../hooks/useVaccinationStatus';
+import CircularProgress from './CircularProgress';
+import DashboardCard from '../DashboardCard';
+
+const VaccinationStatus = () => {
+    const { status, loading, error } = useVaccinationStatus();
+
+    if (loading) {
+        return (
+            <DashboardCard title="Estado de Vacunación">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-gray-500">Cargando estado de vacunación...</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    if (error) {
+        return (
+            <DashboardCard title="Estado de Vacunación">
+                <div className="h-48 flex items-center justify-center">
+                    <p className="text-red-500">Error: {error}</p>
+                </div>
+            </DashboardCard>
+        );
+    }
+
+    const calcularPorcentajeVigente = (estados, total) => {
+        if (!total) return 0;
+        return Math.round(((estados.vigente || 0) / total) * 100);
+    };
+
+    const porcentajeVacunas = calcularPorcentajeVigente(
+        status.vacunas.estados,
+        status.vacunas.total
+    );
+
+    const porcentajeDesparasitacion = calcularPorcentajeVigente(
+        status.desparasitaciones.estados,
+        status.desparasitaciones.total
+    );
+
+    return (
+        <DashboardCard title="Estado de Vacunación">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Vacunas */}
+                <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Syringe className="w-5 h-5 text-primary-500" />
+                        <h3 className="text-lg font-medium">Vacunas</h3>
+                    </div>
+                    <CircularProgress
+                        percentage={porcentajeVacunas}
+                        color={porcentajeVacunas >= 80 ? 'text-green-500' : 'text-orange-500'}
+                    />
+                    <div className="space-y-2">
+                        {status.vacunas.ultimas.map((vacuna) => (
+                            <div key={vacuna.id} className="text-sm text-gray-600">
+                                {vacuna.nombre} - {new Date(vacuna.fecha_aplicacion).toLocaleDateString()}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Desparasitaciones */}
+                <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-primary-500" />
+                        <h3 className="text-lg font-medium">Desparasitaciones</h3>
+                    </div>
+                    <CircularProgress
+                        percentage={porcentajeDesparasitacion}
+                        color={porcentajeDesparasitacion >= 80 ? 'text-green-500' : 'text-orange-500'}
+                    />
+                    <div className="space-y-2">
+                        {status.desparasitaciones.ultimas.map((desp) => (
+                            <div key={desp.id} className="text-sm text-gray-600">
+                                {desp.nombre} - {new Date(desp.fecha_aplicacion).toLocaleDateString()}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </DashboardCard>
+    );
+};
+
+export default VaccinationStatus;
+
+---
+
+// File: src\components\layout\Navbar.jsx
+
+import React from 'react';
+import { PawPrint, Menu } from 'lucide-react';
+
+const Navbar = ({ toggleSidebar }) => {
+    return (
+        <nav className="bg-white border-b border-gray-200 fixed w-full top-0 z-30">
+            <div className="max-w-7xl mx-auto px-4">
+                <div className="flex justify-between h-16">
+                    <div className="flex items-center">
+                        <button
+                            onClick={toggleSidebar}
+                            className="inline-flex items-center justify-center p-2 rounded-md text-primary-600 
+                       md:hidden hover:text-primary-700 hover:bg-primary-100 
+                       focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500"
+                        >
+                            <Menu className="h-6 w-6" />
+                        </button>
+
+                        <div className="flex items-center ml-2 md:ml-0">
+                            <PawPrint className="h-8 w-8 text-primary-600" />
+                            <span className="ml-2 text-xl font-semibold text-primary-900">
+                                Miel Pet App
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    );
+};
+
+export default Navbar;
+
+---
+
+// File: src\components\layout\Sidebar.jsx
+
+import React from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { HomeIcon, Calendar, Scissors, Syringe,Building2 } from 'lucide-react';
+
+const Sidebar = ({ isOpen }) => {
+    const location = useLocation();
+
+    const navigation = [
+        { name: 'Inicio', href: '/home', icon: HomeIcon },
+        { name: 'Proveedores', href: '/providers', icon: Building2 }, // Nuevo enlace
+        { name: 'Visitas Veterinarias', href: '/vet-visits', icon: Calendar },
+        { name: 'Cortes de Pelo', href: '/grooming', icon: Scissors },
+        { name: 'Vacunas', href: '/vaccinations', icon: Syringe },
+    ];
+
+    const isActivePath = (path) => location.pathname === path;
+
+    return (
+        <aside className={`
+      fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 bg-white border-r border-gray-200
+      transform transition-transform duration-200 ease-in-out z-20
+      md:translate-x-0 md:static md:h-[calc(100vh-4rem)]
+      ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+    `}>
+            <nav className="mt-5 px-2">
+                <div className="space-y-1">
+                    {navigation.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                            <Link
+                                key={item.name}
+                                to={item.href}
+                                className={`
+                  flex items-center px-2 py-3 text-base font-medium rounded-lg
+                  transition-colors duration-200
+                  ${isActivePath(item.href)
+                                        ? 'bg-primary-100 text-primary-600'
+                                        : 'text-gray-600 hover:bg-gray-100'}
+                `}
+                            >
+                                <Icon className="mr-4 h-5 w-5" />
+                                {item.name}
+                            </Link>
+                        );
+                    })}
+                </div>
+            </nav>
+        </aside>
+    );
+};
+
+export default Sidebar;
+
+---
+
+// File: src\components\ui\Button.jsx
+
+import React from 'react';
+
+const variants = {
+    primary: 'bg-primary-600 text-white hover:bg-primary-700',
+    secondary: 'bg-white text-primary-600 border border-primary-600 hover:bg-primary-50',
+    outline: 'bg-transparent text-primary-600 border border-primary-600 hover:bg-primary-50',
+};
+
+const sizes = {
+    sm: 'px-3 py-1.5 text-sm',
+    md: 'px-4 py-2 text-base',
+    lg: 'px-6 py-3 text-lg',
+};
+
+const Button = ({
+    children,
+    variant = 'primary',
+    size = 'md',
+    className = '',
+    ...props
+}) => {
+    return (
+        <button
+            className={`
+        ${variants[variant]} 
+        ${sizes[size]}
+        rounded-lg font-medium transition-colors duration-200
+        focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+        disabled:opacity-50 disabled:cursor-not-allowed
+        ${className}
+      `}
+            {...props}
+        >
+            {children}
+        </button>
+    );
+};
+
+export default Button;
+
+---
+
+// File: src\components\ui\Modal.jsx
+
+// src/components/ui/Modal.jsx
+import React from 'react';
+import { X } from 'lucide-react';
+
+const Modal = ({
+    isOpen,
+    onClose,
+    title,
+    children,
+    maxWidth = 'max-w-2xl' // Permite customizar el ancho máximo
+}) => {
+    if (!isOpen) return null;
+
+    return (
+        <>
+            {/* Overlay */}
+            <div className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity" />
+
+            {/* Modal */}
+            <div className="fixed inset-0 z-50 overflow-y-auto">
+                <div className="flex min-h-full items-center justify-center p-4">
+                    <div className={`relative bg-white rounded-lg shadow-xl ${maxWidth} w-full`}>
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <h3 className="text-lg font-semibold text-gray-900">
+                                {title}
+                            </h3>
+                            <button
+                                onClick={onClose}
+                                className="text-gray-400 hover:text-gray-500 focus:outline-none"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6">
+                            {children}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+};
+
+export default Modal;
+
+---
+
+// File: src\components\ui\Toast.jsx
+
+// src/components/ui/Toast.jsx
+import React, { useEffect } from 'react';
+import { CheckCircle, XCircle, X } from 'lucide-react';
+
+// Configuración de posiciones
+const POSITIONS = {
+    'top-left': 'top-4 left-4',
+    'top-center': 'top-4 left-1/2 -translate-x-1/2',
+    'top-right': 'top-4 right-4',
+    'bottom-left': 'bottom-4 left-4',
+    'bottom-center': 'bottom-4 left-1/2 -translate-x-1/2',
+    'bottom-right': 'bottom-4 right-4',
+    'center': 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'
+};
+
+// Animaciones según la posición
+const ANIMATIONS = {
+    'top-left': 'animate-slide-down',
+    'top-center': 'animate-slide-down',
+    'top-right': 'animate-slide-down',
+    'bottom-left': 'animate-slide-up',
+    'bottom-center': 'animate-slide-up',
+    'bottom-right': 'animate-slide-up',
+    'center': 'animate-fade-in'
+};
+
+const Toast = ({
+    message,
+    type = 'success',
+    position = 'bottom-right',
+    duration = 3000,
+    onClose
+}) => {
+    useEffect(() => {
+        if (duration) {
+            const timer = setTimeout(() => {
+                onClose();
+            }, duration);
+
+            return () => clearTimeout(timer);
+        }
+    }, [duration, onClose]);
+
+    const icons = {
+        success: <CheckCircle className="h-5 w-5 text-green-500" />,
+        error: <XCircle className="h-5 w-5 text-red-500" />,
+        warning: <XCircle className="h-5 w-5 text-yellow-500" />,
+        info: <CheckCircle className="h-5 w-5 text-blue-500" />
+    };
+
+    const styles = {
+        success: 'bg-green-50 border-green-200 text-green-800',
+        error: 'bg-red-50 border-red-200 text-red-800',
+        warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
+        info: 'bg-blue-50 border-blue-200 text-blue-800'
+    };
+
+    return (
+        <div className={`
+            fixed z-50 p-4 rounded-lg border shadow-lg max-w-md
+            ${POSITIONS[position]}
+            ${ANIMATIONS[position]}
+            ${styles[type]}
+        `}>
+            <div className="flex items-center space-x-3">
+                {icons[type]}
+                <p className="font-medium">{message}</p>
+                <button
+                    onClick={onClose}
+                    className="ml-auto hover:bg-gray-100 rounded-full p-1 transition-colors"
+                >
+                    <X className="h-4 w-4 text-gray-500" />
+                </button>
+            </div>
+        </div>
+    );
+};
+
+export default Toast;
+
+---
+
+// File: src\hooks\useExpenses.js
+
+// src/hooks/useExpenses.js
+import { useState, useEffect } from 'react';
+import { petService } from '../services/supabase/pets';
+import { expensesService } from '../services/supabase/expenses';
+
+export const useExpenses = () => {
+    const [expenses, setExpenses] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchExpenses = async () => {
+            try {
+                setLoading(true);
+                const mielData = await petService.getPetByName('Miel');
+                if (!mielData) throw new Error('No se encontró a Miel');
+
+                const data = await expensesService.getExpensesSummary(mielData.id);
+                setExpenses(data);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchExpenses();
+    }, []);
+
+    return { expenses, loading, error };
+};
+
+---
+
+// File: src\hooks\useFavoriteProviders.js
+
+// src/hooks/useFavoriteProviders.js
+import { useState, useEffect } from 'react';
+import { providersService } from '../services/supabase/providers';
+
+export const useFavoriteProviders = () => {
+    const [providers, setProviders] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchProviders = async () => {
+            try {
+                setLoading(true);
+                const data = await providersService.getFavoriteProviders();
+                setProviders(data);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchProviders();
+    }, []);
+
+    return { providers, loading, error };
+};
+
+---
+
+// File: src\hooks\usePetCalendar.js
+
+// src/hooks/usePetCalendar.js
+import { useState, useEffect } from 'react';
+import { petService } from '../services/supabase/pets';
+import { calendarService } from '../services/supabase/calendar';
+
+export const usePetCalendar = () => {
+    const [events, setEvents] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchEvents = async () => {
+            try {
+                setLoading(true);
+                const mielData = await petService.getPetByName('Miel');
+                if (!mielData) throw new Error('No se encontró a Miel');
+
+                const data = await calendarService.getPetCareEvents(mielData.id);
+                setEvents(data);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchEvents();
+    }, []);
+
+    return { events, loading, error };
+};
+
+---
+
+// File: src\hooks\usePetProfile.js
+
+// src/hooks/usePetProfile.js
+import { useState, useEffect } from 'react';
+import { petService } from '../services/supabase/pets';
+
+export const usePetProfile = () => {
+    const [pet, setPet] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchPetProfile = async () => {
+            try {
+                setLoading(true);
+                // Primero obtenemos el ID de Miel
+                const mielData = await petService.getPetByName('Miel');
+                if (!mielData) throw new Error('No se encontró a Miel');
+
+                // Luego obtenemos el perfil completo
+                const profileData = await petService.getPetProfile(mielData.id);
+                setPet(profileData);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchPetProfile();
+    }, []);
+
+    return { pet, loading, error };
+};
+
+---
+
+// File: src\hooks\useUpcomingAppointments.js
+
+// src/hooks/useUpcomingAppointments.js
+import { useState, useEffect } from 'react';
+import { appointmentService } from '../services/supabase/appointments';
+import { petService } from '../services/supabase/pets';
+
+export const useUpcomingAppointments = () => {
+    const [appointments, setAppointments] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchAppointments = async () => {
+            try {
+                setLoading(true);
+                // Obtener ID de Miel
+                const mielData = await petService.getPetByName('Miel');
+                if (!mielData) throw new Error('No se encontró a Miel');
+
+                // Obtener citas
+                const data = await appointmentService.getUpcomingAppointments(mielData.id);
+                setAppointments(data);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAppointments();
+    }, []);
+
+    return { appointments, loading, error };
+};
+
+---
+
+// File: src\hooks\useVaccinationStatus.js
+
+// src/hooks/useVaccinationStatus.js
+import { useState, useEffect } from 'react';
+import { petService } from '../services/supabase/pets';
+import { vaccinationService } from '../services/supabase/vaccinations';
+
+export const useVaccinationStatus = () => {
+    const [status, setStatus] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchStatus = async () => {
+            try {
+                setLoading(true);
+                const mielData = await petService.getPetByName('Miel');
+                if (!mielData) throw new Error('No se encontró a Miel');
+
+                const data = await vaccinationService.getVaccinationStatus(mielData.id);
+                setStatus(data);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchStatus();
+    }, []);
+
+    return { status, loading, error };
+};
+
+---
+
+// File: src\index.css
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  background-color: #f3f4f6;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+---
+
+// File: src\main.jsx
+
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+---
+
+// File: src\pages\Home.jsx
+
+// src/pages/Home.jsx
+import React from 'react';
+import PetProfileCard from '../components/dashboard/pet-profile/PetProfileCard';
+import UpcomingAppointments from '../components/dashboard/appointments/UpcomingAppointments';
+import VaccinationStatus from '../components/dashboard/vaccination/VaccinationStatus';
+import ExpensesHistory from '../components/dashboard/expenses/ExpensesHistory';
+import FavoriteProviders from '../components/dashboard/providers/FavoriteProviders';
+import CareCalendar from '../components/dashboard/calendar/CareCalendar';
+
+const Home = () => {
+    return (
+        <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+                <h1 className="text-2xl font-bold text-gray-900">
+                    Panel de Control
+                </h1>
+                <p className="mt-2 text-gray-600">
+                    Resumen general del estado de salud y actividades de Miel
+                </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-2">
+                    <PetProfileCard />
+                    <div className="mt-6">
+                        <VaccinationStatus />
+                    </div>
+                    <div className="mt-6">
+                        <ExpensesHistory />
+                    </div>
+                    <div className="mt-6">
+                        <FavoriteProviders />
+                    </div>
+                    <div className="mt-6">
+                        <CareCalendar />
+                    </div>
+                </div>
+                <div>
+                    <UpcomingAppointments />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Home;
+
+---
+
+// File: src\pages\Layout.jsx
+
+import React, { useState } from 'react';
+import { Outlet } from 'react-router-dom';
+import Navbar from '../components/layout/Navbar';
+import Sidebar from '../components/layout/Sidebar';
+
+const Layout = () => {
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    const toggleSidebar = () => {
+        setIsSidebarOpen(!isSidebarOpen);
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <Navbar toggleSidebar={toggleSidebar} />
+
+            <div className="flex pt-16">
+                <Sidebar isOpen={isSidebarOpen} />
+
+                {/* Overlay para mobile cuando el sidebar está abierto */}
+                {isSidebarOpen && (
+                    <div
+                        className="fixed inset-0 bg-gray-600 bg-opacity-50 transition-opacity md:hidden z-10"
+                        onClick={toggleSidebar}
+                    />
+                )}
+
+                {/* Main Content */}
+                <main className="flex-1 p-4 md:p-8">
+                    <div className="max-w-7xl mx-auto">
+                        <Outlet />
+                    </div>
+                </main>
+            </div>
+        </div>
+    );
+};
+
+export default Layout;
+
+---
+
+// File: src\pages\Welcome.jsx
+
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { PawPrint } from 'lucide-react';
+
+const Welcome = () => {
+    const navigate = useNavigate();
+
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-700 to-primary-900">
+            <div className="text-center p-8">
+                <div className="flex justify-center mb-8">
+                    <div className="bg-white p-6 rounded-full">
+                        <PawPrint className="w-24 h-24 text-primary-600" />
+                    </div>
+                </div>
+
+                <h1 className="text-4xl md:text-6xl font-bold text-white mb-8">
+                    Miel Pet App
+                </h1>
+
+                <button
+                    onClick={() => navigate('/home')}
+                    className="px-8 py-4 bg-white text-primary-600 rounded-lg font-semibold text-lg 
+                   shadow-lg hover:bg-primary-50 transition-colors duration-200
+                   focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 
+                   focus:ring-offset-primary-600"
+                >
+                    Entrar
+                </button>
+            </div>
+        </div>
+    );
+};
+
+export default Welcome;
+
+---
+
+// File: src\services\supabase\appointments.js
+
+// src/services/supabase/appointments.js
+import { supabase } from './client';
+
+export const appointmentService = {
+    async getUpcomingAppointments(petId) {
+        const today = new Date().toISOString().split('T')[0];
+
+        // Obtenemos citas veterinarias futuras
+        const { data: vetAppointments, error: vetError } = await supabase
+            .from('visitas_veterinarias')
+            .select(`
+        id,
+        fecha_proxima_visita,
+        motivo,
+        proveedor_id,
+        proveedores_servicios (
+            nombre
+            )
+        `)
+            .eq('mascota_id', petId)
+            .gte('fecha_proxima_visita', today)
+            .order('fecha_proxima_visita');
+
+        if (vetError) throw vetError;
+
+        // Obtenemos citas de estética futuras
+        const { data: groomingAppointments, error: groomError } = await supabase
+            .from('estetica')
+            .select(`
+        id,
+        fecha_proxima_cita,
+        tipo_servicio,
+        proveedor_id,
+        proveedores_servicios (
+            nombre
+            )
+        `)
+            .eq('mascota_id', petId)
+            .gte('fecha_proxima_cita', today)
+            .order('fecha_proxima_cita');
+
+        if (groomError) throw groomError;
+
+        // Obtenemos próximas vacunas y desparasitaciones
+        const { data: vaccineAppointments, error: vaccineError } = await supabase
+            .from('vacunas_desparasitaciones')
+            .select(`
+        id,
+        fecha_proxima_aplicacion,
+        tipo,
+        nombre,
+        proveedor_id,
+        proveedores_servicios (
+            nombre
+            )
+        `)
+            .eq('mascota_id', petId)
+            .gte('fecha_proxima_aplicacion', today)
+            .order('fecha_proxima_aplicacion');
+
+        if (vaccineError) throw vaccineError;
+
+        return {
+            vet: vetAppointments || [],
+            grooming: groomingAppointments || [],
+            vaccines: vaccineAppointments || []
+        };
+    }
+};
+
+---
+
+// File: src\services\supabase\calendar.js
+
+// src/services/supabase/calendar.js
+import { supabase } from './client';
+
+export const calendarService = {
+    async getPetCareEvents(petId) {
+        try {
+            const [vetResults, groomResults, vaccineResults] = await Promise.all([
+                // Eventos veterinarios
+                supabase
+                    .from('visitas_veterinarias')
+                    .select(`
+            id,
+            fecha_visita,
+            fecha_proxima_visita,
+            motivo,
+            proveedor_id,
+            proveedores_servicios (nombre)
+          `)
+                    .eq('mascota_id', petId),
+
+                // Eventos de estética
+                supabase
+                    .from('estetica')
+                    .select(`
+            id,
+            fecha_servicio,
+            fecha_proxima_cita,
+            tipo_servicio,
+            proveedor_id,
+            proveedores_servicios (nombre)
+          `)
+                    .eq('mascota_id', petId),
+
+                // Eventos de vacunas y desparasitaciones
+                supabase
+                    .from('vacunas_desparasitaciones')
+                    .select(`
+            id,
+            fecha_aplicacion,
+            fecha_proxima_aplicacion,
+            tipo,
+            nombre,
+            proveedor_id,
+            proveedores_servicios (nombre)
+          `)
+                    .eq('mascota_id', petId)
+            ]);
+
+            // Verificar errores
+            if (vetResults.error) throw vetResults.error;
+            if (groomResults.error) throw groomResults.error;
+            if (vaccineResults.error) throw vaccineResults.error;
+
+            // Procesar y combinar eventos
+            const events = [
+                // Eventos veterinarios
+                ...vetResults.data.flatMap(vet => [
+                    {
+                        id: `vet-${vet.id}`,
+                        title: vet.motivo,
+                        start: new Date(vet.fecha_visita),
+                        provider: vet.proveedores_servicios?.nombre,
+                        type: 'veterinary',
+                        status: 'completed'
+                    },
+                    vet.fecha_proxima_visita && {
+                        id: `vet-next-${vet.id}`,
+                        title: `Próxima visita: ${vet.motivo}`,
+                        start: new Date(vet.fecha_proxima_visita),
+                        provider: vet.proveedores_servicios?.nombre,
+                        type: 'veterinary',
+                        status: 'upcoming'
+                    }
+                ].filter(Boolean)),
+
+                // Eventos de estética
+                ...groomResults.data.flatMap(groom => [
+                    {
+                        id: `groom-${groom.id}`,
+                        title: 'Sesión de Estética',
+                        start: new Date(groom.fecha_servicio),
+                        provider: groom.proveedores_servicios?.nombre,
+                        type: 'grooming',
+                        status: 'completed'
+                    },
+                    groom.fecha_proxima_cita && {
+                        id: `groom-next-${groom.id}`,
+                        title: 'Próxima Sesión de Estética',
+                        start: new Date(groom.fecha_proxima_cita),
+                        provider: groom.proveedores_servicios?.nombre,
+                        type: 'grooming',
+                        status: 'upcoming'
+                    }
+                ].filter(Boolean)),
+
+                // Eventos de vacunas y desparasitaciones
+                ...vaccineResults.data.flatMap(vac => [
+                    {
+                        id: `vac-${vac.id}`,
+                        title: vac.tipo === 'vacuna' ? `Vacuna: ${vac.nombre}` : `Desparasitación: ${vac.nombre}`,
+                        start: new Date(vac.fecha_aplicacion),
+                        provider: vac.proveedores_servicios?.nombre,
+                        type: vac.tipo,
+                        status: 'completed'
+                    },
+                    vac.fecha_proxima_aplicacion && {
+                        id: `vac-next-${vac.id}`,
+                        title: vac.tipo === 'vacuna' ? `Próxima Vacuna: ${vac.nombre}` : `Próxima Desparasitación: ${vac.nombre}`,
+                        start: new Date(vac.fecha_proxima_aplicacion),
+                        provider: vac.proveedores_servicios?.nombre,
+                        type: vac.tipo,
+                        status: 'upcoming'
+                    }
+                ].filter(Boolean))
+            ];
+
+            return events;
+        } catch (error) {
+            console.error('Error in getPetCareEvents:', error);
+            throw error;
+        }
+    }
+};
+
+---
+
+// File: src\services\supabase\client.js
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Faltan las variables de entorno de Supabase');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export default supabase;
+
+---
+
+// File: src\services\supabase\expenses.js
+
+// src/services/supabase/expenses.js
+import { supabase } from './client';
+
+export const expensesService = {
+    async getExpensesSummary(petId) {
+        try {
+            // Realizar las consultas
+            const [vetResults, groomResults, vaccineResults] = await Promise.all([
+                // Gastos veterinarios
+                supabase
+                    .from('visitas_veterinarias')
+                    .select('costo, categoria_gasto, fecha_visita')
+                    .eq('mascota_id', petId),
+
+                // Gastos de estética
+                supabase
+                    .from('estetica')
+                    .select('costo, categoria_gasto, fecha_servicio')
+                    .eq('mascota_id', petId),
+
+                // Gastos de vacunas y desparasitaciones
+                supabase
+                    .from('vacunas_desparasitaciones')
+                    .select('costo, categoria_gasto, fecha_aplicacion')
+                    .eq('mascota_id', petId)
+            ]);
+
+            // Verificar errores
+            if (vetResults.error) throw vetResults.error;
+            if (groomResults.error) throw groomResults.error;
+            if (vaccineResults.error) throw vaccineResults.error;
+
+            // Combinar todos los gastos
+            const allExpenses = [
+                ...vetResults.data.map(expense => ({
+                    ...expense,
+                    fecha: expense.fecha_visita
+                })),
+                ...groomResults.data.map(expense => ({
+                    ...expense,
+                    fecha: expense.fecha_servicio
+                })),
+                ...vaccineResults.data.map(expense => ({
+                    ...expense,
+                    fecha: expense.fecha_aplicacion
+                }))
+            ];
+
+            // Procesar los gastos
+            return allExpenses.reduce((acc, expense) => {
+                if (!expense.costo || !expense.fecha) return acc;
+
+                const fecha = new Date(expense.fecha);
+                const mes = fecha.toLocaleString('default', { month: 'long', year: 'numeric' });
+                const categoria = expense.categoria_gasto;
+
+                // Acumular por mes
+                if (!acc.porMes[mes]) {
+                    acc.porMes[mes] = 0;
+                }
+                acc.porMes[mes] += Number(expense.costo);
+
+                // Acumular por categoría
+                if (!acc.porCategoria[categoria]) {
+                    acc.porCategoria[categoria] = 0;
+                }
+                acc.porCategoria[categoria] += Number(expense.costo);
+
+                // Total general
+                acc.total += Number(expense.costo);
+
+                return acc;
+            }, { porMes: {}, porCategoria: {}, total: 0 });
+
+        } catch (error) {
+            console.error('Error en getExpensesSummary:', error);
+            throw error;
+        }
+    }
+};
+
+---
+
+// File: src\services\supabase\pets.js
+
+// src/services/supabase/pets.js
+import { supabase } from './client';
+
+export const petService = {
+    async getPetByName(name) {
+        const { data, error } = await supabase
+            .from('mascotas')
+            .select('id')
+            .eq('nombre', name)
+            .single();
+
+        if (error) throw error;
+        return data;
+    },
+
+    async getPetProfile(petId) {
+        // Primero obtenemos la mascota con sus datos básicos
+        const { data: pet, error: petError } = await supabase
+            .from('mascotas')
+            .select('*')
+            .eq('id', petId)
+            .single();
+
+        if (petError) throw petError;
+
+        // Luego obtenemos las visitas veterinarias ordenadas
+        const { data: visits, error: visitsError } = await supabase
+            .from('visitas_veterinarias')
+            .select('id, fecha_visita, estado_salud, peso')
+            .eq('mascota_id', petId)
+            .order('fecha_visita', { ascending: false });
+
+        if (visitsError) throw visitsError;
+
+        // Combinamos los datos
+        return {
+            ...pet,
+            visitas_veterinarias: visits
+        };
+    }
+};
+
+---
+
+// File: src\services\supabase\providers.js
+
+// src/services/supabase/providers.js
+import { supabase } from './client';
+
+export const providersService = {
+    async getFavoriteProviders() {
+        const { data, error } = await supabase
+            .from('proveedores_servicios')
+            .select(`
+        id,
+        nombre,
+        tipo,
+        direccion,
+        telefono,
+        correo,
+        calificacion,
+        es_favorito,
+        visitas_veterinarias (
+          fecha_visita,
+          motivo
+        ),
+        estetica (
+          fecha_servicio,
+          tipo_servicio
+        )
+      `)
+            .eq('es_favorito', true)
+            .order('calificacion', { ascending: false });
+
+        if (error) {
+            console.error('Error al obtener proveedores:', error);
+            throw error;
+        }
+
+        // Procesamos los datos para obtener solo la última visita/estética
+        const processedData = data.map(provider => ({
+            ...provider,
+            ultima_visita: provider.visitas_veterinarias?.[0] || null,
+            ultima_estetica: provider.estetica?.[0] || null,
+            // Eliminamos los arrays originales ya que no los necesitamos
+            visitas_veterinarias: undefined,
+            estetica: undefined
+        }));
+
+        return processedData;
+    }
+};
+
+---
+
+// File: src\services\supabase\vaccinations.js
+
+// src/services/supabase/vaccinations.js
+import { supabase } from './client';
+
+export const vaccinationService = {
+    async getVaccinationStatus(petId) {
+        const today = new Date().toISOString().split('T')[0];
+
+        // Obtener todas las vacunas y desparasitaciones
+        const { data, error } = await supabase
+            .from('vacunas_desparasitaciones')
+            .select(`
+        id,
+        tipo,
+        nombre,
+        fecha_aplicacion,
+        fecha_proxima_aplicacion,
+        marca,
+        aplicado_por
+      `)
+            .eq('mascota_id', petId)
+            .order('fecha_aplicacion', { ascending: false });
+
+        if (error) throw error;
+
+        // Separar vacunas y desparasitaciones
+        const vacunas = data.filter(item => item.tipo === 'vacuna');
+        const desparasitaciones = data.filter(item => item.tipo === 'desparasitacion');
+
+        // Calcular estados
+        const calcularEstado = (fecha) => {
+            if (!fecha) return 'pendiente';
+            const fechaProxima = new Date(fecha);
+            const fechaActual = new Date();
+            const diferenciaDias = Math.floor((fechaProxima - fechaActual) / (1000 * 60 * 60 * 24));
+
+            if (diferenciaDias < 0) return 'vencida';
+            if (diferenciaDias <= 7) return 'proxima';
+            return 'vigente';
+        };
+
+        // Procesar vacunas y desparasitaciones
+        const procesarItems = (items) => {
+            return items.reduce((acc, item) => {
+                const estado = calcularEstado(item.fecha_proxima_aplicacion);
+                acc[estado] = (acc[estado] || 0) + 1;
+                return acc;
+            }, {});
+        };
+
+        return {
+            vacunas: {
+                total: vacunas.length,
+                estados: procesarItems(vacunas),
+                ultimas: vacunas.slice(0, 3)
+            },
+            desparasitaciones: {
+                total: desparasitaciones.length,
+                estados: procesarItems(desparasitaciones),
+                ultimas: desparasitaciones.slice(0, 3)
+            }
+        };
+    }
+};
+
+---
+
+// File: src\styles\colors.css
+
+:root {
+  /* Colores primarios en tonos púrpura */
+  --color-primary-50: #faf5ff;
+  --color-primary-100: #f3e8ff;
+  --color-primary-200: #e9d5ff;
+  --color-primary-300: #d8b4fe;
+  --color-primary-400: #c084fc;
+  --color-primary-500: #a855f7;
+  --color-primary-600: #9333ea;
+  --color-primary-700: #7e22ce;
+  --color-primary-800: #6b21a8;
+  --color-primary-900: #581c87;
+
+  /* Gradiente actualizado */
+  --bg-gradient: linear-gradient(135deg, var(--color-primary-700), var(--color-primary-900));
+  
+  /* Colores de texto */
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --text-light: #ffffff;
+  
+  /* Colores de bordes */
+  --border-color: #e5e7eb;
+  
+  /* Sombras */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+---
+
+// File: src\utils\dateUtils.js
+
+// src/utils/dateUtils.js
+export const calculateAge = (birthDate) => {
+    if (!birthDate) return null;
+
+    const birth = new Date(birthDate);
+    const today = new Date();
+
+    let years = today.getFullYear() - birth.getFullYear();
+    let months = today.getMonth() - birth.getMonth();
+
+    if (months < 0 || (months === 0 && today.getDate() < birth.getDate())) {
+        years--;
+        months += 12;
+    }
+
+    if (years === 0) {
+        return `${months} meses`;
+    } else if (years === 1) {
+        return months > 0 ? `1 año y ${months} meses` : '1 año';
+    } else {
+        return months > 0 ? `${years} años y ${months} meses` : `${years} años`;
+    }
+};
+
+---
+
+// File: tailwind.config.js
+
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: 'var(--color-primary-50)',
+          100: 'var(--color-primary-100)',
+          200: 'var(--color-primary-200)',
+          300: 'var(--color-primary-300)',
+          400: 'var(--color-primary-400)',
+          500: 'var(--color-primary-500)',
+          600: 'var(--color-primary-600)',
+          700: 'var(--color-primary-700)',
+          800: 'var(--color-primary-800)',
+          900: 'var(--color-primary-900)',
+        },
+      },
+      keyframes: {
+        'slide-up': {
+          '0%': { transform: 'translateY(100%)' },
+          '100%': { transform: 'translateY(0)' },
+        },
+        'slide-down': {
+          '0%': { transform: 'translateY(-100%)' },
+          '100%': { transform: 'translateY(0)' },
+        },
+        'slide-left': {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        'slide-right': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        }
+      },
+      animation: {
+        'slide-up': 'slide-up 0.3s ease-out',
+        'slide-down': 'slide-down 0.3s ease-out',
+        'slide-left': 'slide-left 0.3s ease-out',
+        'slide-right': 'slide-right 0.3s ease-out',
+        'fade-in': 'fade-in 0.3s ease-out'
+      }
+    },
+  },
+  plugins: [
+    require('@tailwindcss/forms'), // Asegúrate de tener este plugin instalado
+  ],
+}
+
+---
+
+// File: vite.config.js
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+
+
