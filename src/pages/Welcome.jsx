@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePetProfile } from '../../../hooks/usePetProfile';
+import { usePetProfile } from '../hooks/usePetProfile';
 
 const Welcome = () => {
     const navigate = useNavigate();
